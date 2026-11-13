@@ -243,8 +243,8 @@
      *   Key 藏 Worker 环境变量，防扒 Key + 解决跨域（约40行，免费）。
      * ══════════════════════════════════════════════════════════════ */
     var API_CONFIG = {
-      baseURL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-      apiKey: 'beb76d9b49784520a7069b14b357547a.RvNKT2aWpRNLfpiP',
+      baseURL: 'https://erbin-relay.netlify.app/api/chat?k=erbin2026',
+      apiKey: 'relay',                              // 中转站模式：Key 藏在 Netlify 服务端，网页不暴露
       model: 'glm-4-flash',
       temperature: 0.7,
       maxTokens: 1200,
@@ -733,15 +733,23 @@
       var typing = showTyping();
       var liveMode = !!API_CONFIG.apiKey && !imageUrl;
       var p = imageUrl ? Promise.resolve(RPL.vision) : requestAI(text);
-      /* 接口异常兜底：错误转为可读提示，保证打字动画必然结束 */
+      /* 接口异常兜底：AI 失联自动降级演示库（路演永不白屏）；错误可读化 */
       p = p.catch(function (e) {
-        return '❌ AI 接口没接通：' + String((e && e.message) || e) + '\n排查：① apiKey 填对没；② baseURL 与平台匹配没；③ 浏览器控制台若报 CORS，建议切 Cloudflare Worker 代理。';
+        if (liveMode) {
+          var fb = mockReply(text);
+          return Promise.resolve(fb).then(function (r) {
+            var note = '⚠️ AI 实时通道这会儿没应上（可能断网或服务忙），先上【演示版】答案顶着 👇';
+            if (r && r.__map) { r.intro = note + '<br>' + r.intro; return r; }
+            return { __html: note + '<br><br>' + r };
+          });
+        }
+        return '⚠️ 网络有点飘，这会儿没答上：' + String((e && e.message) || e) + '<br>歇2秒再发一遍，或点下方快捷按钮先体验。';
       });
       /* 最短"思考"时长，让打字动画有个自然的呼吸感 */
       Promise.all([p, sleep(650 + Math.random() * 550)]).then(function (out) {
-        typing.remove();
         var reply = out[0];
         if (reply && reply.__map) { addAI(reply.intro); appendMapCard(); }
+        else if (reply && reply.__html) addAI(reply.__html);
         else addAI(reply, liveMode);
       });
     }
