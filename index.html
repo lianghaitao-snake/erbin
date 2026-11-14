@@ -704,22 +704,30 @@
       });
     }
 
-    /* ───── 网络层 v2.0：apiKey 有值走真实 AI（OpenAI 兼容），否则 Mock ───── */
+    /* ───── 网络层 v2.3：apiKey 有值走真实 AI（OpenAI 兼容），否则 Mock ─────
+     * EdgeOne 预览域名鉴权机制：带 token 访问一次 → Set-Cookie(3小时) → 裸访问放行
+     * 故发起 AI 请求前先“种 cookie”（HEAD落地页），再正式 POST，绕开预检重定向拦截 */
     function requestAI(text) {
       if (!API_CONFIG.apiKey) return Promise.resolve(mockReply(text));
       var msgs = [{ role: 'system', content: API_CONFIG.systemPrompt }];
       history.forEach(function (m) {
         if (m.text) msgs.push({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text });
       });
-      return fetch(API_CONFIG.baseURL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_CONFIG.apiKey },
-        body: JSON.stringify({
-          model: API_CONFIG.model,
-          messages: msgs,
-          temperature: API_CONFIG.temperature,
-          max_tokens: API_CONFIG.maxTokens
-        })
+      var pre = /eo_token=/.test(API_CONFIG.baseURL)
+        ? fetch(API_CONFIG.baseURL.split('/api/')[0] + '/?eo_token=' + (API_CONFIG.baseURL.match(/eo_token=([\w]+)/) || [])[1] + '&eo_time=' + (API_CONFIG.baseURL.match(/eo_time=(\d+)/) || [])[1], { method: 'GET', credentials: 'include' }).catch(function () {})
+        : Promise.resolve();
+      return pre.then(function () {
+        return fetch(API_CONFIG.baseURL, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_CONFIG.apiKey },
+          body: JSON.stringify({
+            model: API_CONFIG.model,
+            messages: msgs,
+            temperature: API_CONFIG.temperature,
+            max_tokens: API_CONFIG.maxTokens
+          })
+        });
       }).then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
