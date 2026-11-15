@@ -243,7 +243,8 @@
      *   Key 藏 Worker 环境变量，防扒 Key + 解决跨域（约40行，免费）。
      * ══════════════════════════════════════════════════════════════ */
     var API_CONFIG = {
-      baseURL: 'https://erbin-relay-dpss5x9pchzl.edgeone.dev/api/chat?eo_token=04395ca1641ffc4a39eecd0dd3d42d46&eo_time=1794626194&k=erbin2026',
+      baseURL: 'https://erbin-relay-z5kdowe6.edgeone.dev/api/chat?k=erbin2026',
+      seedURL: 'https://erbin-relay-z5kdowe6.edgeone.dev/?eo_token=19ffa3c59658020aaaaece076d2f7bb0&eo_time=1794712001',
       apiKey: 'relay',                              // 中转站模式：Key 藏在 EdgeOne 服务端，网页不暴露
       model: 'glm-4-flash',
       temperature: 0.7,
@@ -704,23 +705,25 @@
       });
     }
 
-    /* ───── 网络层 v2.3：apiKey 有值走真实 AI（OpenAI 兼容），否则 Mock ─────
-     * EdgeOne 预览域名鉴权机制：带 token 访问一次 → Set-Cookie(3小时) → 裸访问放行
-     * 故发起 AI 请求前先“种 cookie”（HEAD落地页），再正式 POST，绕开预检重定向拦截 */
+    /* ───── 网络层 v2.5：apiKey 有值走真实 AI（OpenAI 兼容），否则 Mock ─────
+     * EdgeOne 预览域名鉴权双步穿透：
+     * ① no-cors GET 落地页种 cookie（eo_token 写入，3小时有效）
+     * ② 简单请求 POST（text/plain、无自定义头 → 免预检！）credentials 带上 cookie 直达函数
+     * 函数端 CORS 已改指定来源+Allow-Credentials，配合 credentials 穿透浏览器校验 */
     function requestAI(text) {
       if (!API_CONFIG.apiKey) return Promise.resolve(mockReply(text));
       var msgs = [{ role: 'system', content: API_CONFIG.systemPrompt }];
       history.forEach(function (m) {
         if (m.text) msgs.push({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text });
       });
-      var pre = /eo_token=/.test(API_CONFIG.baseURL)
-        ? fetch(API_CONFIG.baseURL.split('/api/')[0] + '/?eo_token=' + (API_CONFIG.baseURL.match(/eo_token=([\w]+)/) || [])[1] + '&eo_time=' + (API_CONFIG.baseURL.match(/eo_time=(\d+)/) || [])[1], { method: 'GET', credentials: 'include' }).catch(function () {})
+      var pre = API_CONFIG.seedURL
+        ? fetch(API_CONFIG.seedURL, { method: 'GET', mode: 'no-cors', credentials: 'include' }).catch(function () {})
         : Promise.resolve();
       return pre.then(function () {
         return fetch(API_CONFIG.baseURL, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_CONFIG.apiKey },
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({
             model: API_CONFIG.model,
             messages: msgs,
