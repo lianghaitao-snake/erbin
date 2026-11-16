@@ -716,25 +716,37 @@
       history.forEach(function (m) {
         if (m.text) msgs.push({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.text });
       });
-      var pre = API_CONFIG.seedURL
+      var seedCookie = API_CONFIG.seedURL
         ? fetch(API_CONFIG.seedURL, { method: 'GET', mode: 'no-cors', credentials: 'include' }).catch(function () {})
         : Promise.resolve();
-      return pre.then(function () {
-        return fetch(API_CONFIG.baseURL, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            model: API_CONFIG.model,
-            messages: msgs,
-            temperature: API_CONFIG.temperature,
-            max_tokens: API_CONFIG.maxTokens
-          })
+      /* 单次调用：带 45 秒超时（智谱偶发 504 网关超时，超过这个点大概率回不来） */
+      function callOnce() {
+        return Promise.race([
+          fetch(API_CONFIG.baseURL, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({
+              model: API_CONFIG.model,
+              messages: msgs,
+              temperature: API_CONFIG.temperature,
+              max_tokens: API_CONFIG.maxTokens
+            })
+          }).then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+          }).then(function (data) { return API_CONFIG.parse(data); }),
+          new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout45s')); }, 45000); })
+        ]);
+      }
+      return seedCookie.then(function () {
+        /* 首次超时/失败 → 自动重试一次（等1.5秒给网关喘口气）；再挂才走降级 */
+        return callOnce().catch(function (e1) {
+          return sleep(1500).then(function () {
+            return callOnce().catch(function (e2) { throw e2; });
+          });
         });
-      }).then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      }).then(function (data) { return API_CONFIG.parse(data); });
+      });
     }
 
     /* ───── 主流程 handleSend ───── */
