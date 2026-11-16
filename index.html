@@ -580,13 +580,30 @@
     }
 
     /* AI 气泡：Mock 走 innerHTML（自有模板）；真实接口走 textContent（pre-wrap 换行） */
+    /* 迷你 Markdown 渲染器：把 AI 返回的 **加粗**、列表、标题、分隔线转成 HTML
+     * 解决智谱返回 *星号* 原样显示的问题；先转义再格式化，防注入 */
+    function mdToHtml(src) {
+      var s = String(src == null ? '' : src);
+      s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      s = s.replace(/```[\s\S]*?```/g, function (m) { return '<code>' + m.slice(3, -3).replace(/^\w+\n/, '') + '</code>'; });
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');            /* **粗体** */
+      s = s.replace(/(^|\n)#{1,4}[^\n]*/g, function (m) { return m.replace(/^\n?#{1,4}\s*/, '\n<b>'); }) .replace(/(^|\n)\n<b>/g, '\n\n<b>');
+      s = s.replace(/(^|\n)\s*[-—]{3,}\s*(?=\n|$)/g, '\n<hr>');       /* 分隔线 */
+      s = s.replace(/(^|\n)\s*[-*•]\s+/g, '\n• ');                    /* - / * / • 列表 */
+      s = s.replace(/(^|\n)(\d+)[.、)]\s+/g, '\n$1. ');            /* 1. 有序列表 */
+      s = s.replace(/\*([^*\n]+)\*/g, '<i>$1</i>');                  /* *斜体* */
+      s = s.replace(/\n\n+/g, '\n\n').replace(/\n/g, '<br>');           /* 换行 */
+      return s;
+    }
+
     function addAI(content, asText) {
       var wrap = document.createElement('div');
       wrap.className = 'msg msg-ai';
       wrap.appendChild(makeAvatar());
       var b = document.createElement('div');
       b.className = 'bubble';
-      if (asText) b.textContent = content; else b.innerHTML = content;
+      /* 真 AI 应答含 Markdown 标记 → 渲染成富文本；Mock 模板本就是 HTML 直接 innerHTML */
+      if (asText) b.innerHTML = mdToHtml(content); else b.innerHTML = content;
       wrap.appendChild(b);
       els.chat.appendChild(wrap);
       history.push({ role: 'ai', text: asText ? content : stripTags(content) });
